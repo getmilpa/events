@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/getmilpa/events/compare/v0.1.1...v0.2.0) (2026-07-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* dispatcher honors the InterceptionSlot (core 0.5)
+
+### Features
+
+* dispatcher honors the InterceptionSlot (core 0.5) ([4dc7b40](https://github.com/getmilpa/events/commit/4dc7b40995d5a32e9728b885c8c1bb4dcffc3ad2))
+
 ## [0.1.1](https://github.com/getmilpa/events/compare/v0.1.0...v0.1.1) (2026-07-08)
 
 
