@@ -43,40 +43,21 @@ if ($version === null) {
     $version = is_array($data) && is_string($data['.'] ?? null) ? $data['.'] : 'dev';
 }
 
-$count = (new Milpa\Docs\SiteGenerator(dirname(__DIR__) . '/src', $out, $cssBase, $version))->generate();
-
-// INTERIM re-branding: the family generator (milpa/core <= 0.2) hardcodes the
-// "Milpa Core" brand, hero prose and install snippet in Shell/SiteGenerator.
-// Until core parametrizes those, rewrite the generated HTML for this package.
-// Tracked in the monorepo ROADMAP (gen-docs multi-paquete, mejoras diferidas).
-$rebrand = [
-    'utm_content=core' => 'utm_content=events',
-    'Milpa Core' => 'Milpa Events',
-    'id="milpa-core"' => 'id="milpa-events"',
-    'composer require milpa/core' => 'composer require milpa/events',
-    'https://github.com/getmilpa/core' => 'https://github.com/getmilpa/events',
-    'https://getmilpa.github.io/core/' => 'https://getmilpa.github.io/events/',
-    // Footer credit link: inherit the muted footer color instead of browser-default blue
-    // (fixed at source in core's Shell for >0.2; injected here for the 0.2 vendor).
-    '.docs-footer__credit { margin:0; font-size:var(--text-xs); }'
-    => '.docs-footer__credit { margin:0; font-size:var(--text-xs); }'
-        . '.docs-footer__credit a { color:inherit; text-decoration:underline; text-underline-offset:2px; text-decoration-color:var(--border-strong); }'
-        . '.docs-footer__credit a:hover { color:var(--text); text-decoration-color:currentColor; }',
-
-    'The framework-agnostic <strong>contracts core</strong> of Milpa — a modular PHP runtime for '
-        . 'applications operable by <strong>both humans and agents</strong>. No ORM, no HTTP client, no kernel: '
-        . 'just the primitives every Milpa module builds on.'
-    => 'The <strong>reference event dispatcher</strong> of Milpa — string-named events with dot-segment '
+// Branding for this package's docs site — see Milpa\Docs\SiteConfig (milpa/core).
+$config = new Milpa\Docs\SiteConfig(
+    brand: 'Milpa Events',
+    nsPrefix: 'Milpa\\Eventing\\',
+    installCommand: 'composer require milpa/events',
+    repoUrl: 'https://github.com/getmilpa/events',
+    pagesUrl: 'https://getmilpa.github.io/events/',
+    heroParagraph: 'The <strong>reference event dispatcher</strong> of Milpa — string-named events with dot-segment '
         . 'wildcard subscriptions (<code>user.*</code>), priority ordering, and per-listener error isolation. '
         . 'The concrete implementation of the <code>MilpaEventDispatcherInterface</code> seam <code>milpa/core</code> '
         . 'defines, plus a pluggable async (queue) seam.',
-];
-$pages = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($out, FilesystemIterator::SKIP_DOTS));
-foreach ($pages as $file) {
-    if ($file->getExtension() === 'html') {
-        file_put_contents($file->getPathname(), strtr((string) file_get_contents($file->getPathname()), $rebrand));
-    }
-}
+    utmContent: 'events',
+);
+
+$count = (new Milpa\Docs\SiteGenerator(dirname(__DIR__) . '/src', $out, $cssBase, $version, $config))->generate();
 
 echo "generated {$count} page(s) to {$out} (v{$version}, css-base: {$cssBase})\n";
 exit(0);
