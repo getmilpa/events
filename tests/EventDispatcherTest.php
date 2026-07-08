@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\Eventing\Tests;
 
 use PHPUnit\Framework\TestCase;
+use Milpa\Events\InterceptionSlot;
 use Milpa\Eventing\EventDispatcher;
 use Psr\Log\LoggerInterface;
 
@@ -407,5 +408,204 @@ class EventDispatcherTest extends TestCase
         $this->dispatcher->dispatch('user.createdX');
 
         $this->assertFalse($called, 'wildcard regex must be anchored, not a substring match');
+    }
+
+    // ========== Interception (KEYSTONE, core 0.5 / events 0.2) ==========
+
+    public function testStopHaltsLowerPriorityHandlers(): void
+    {
+        $callOrder = [];
+        $slot = new InterceptionSlot();
+
+        $this->dispatcher->subscribe('intercept.event', function () use (&$callOrder, $slot) {
+            $callOrder[] = 'high';
+            $slot->stop();
+        }, 100);
+
+        $this->dispatcher->subscribe('intercept.event', function () use (&$callOrder) {
+            $callOrder[] = 'low';
+        }, 0);
+
+        $this->dispatcher->dispatch('intercept.event', ['slot' => $slot]);
+
+        $this->assertSame(['high'], $callOrder, 'the lower-priority handler must never run once a higher-priority handler stopped the slot');
+        $this->assertTrue($slot->isStopped());
+    }
+
+    public function testShortCircuitAlsoHaltsPropagation(): void
+    {
+        $callOrder = [];
+        $slot = new InterceptionSlot();
+
+        $this->dispatcher->subscribe('cache.event', function () use (&$callOrder, $slot) {
+            $callOrder[] = 'cache-hit';
+            $slot->shortCircuit('cached-result');
+        }, 100);
+
+        $this->dispatcher->subscribe('cache.event', function () use (&$callOrder) {
+            $callOrder[] = 'never';
+        }, 0);
+
+        $this->dispatcher->dispatch('cache.event', ['slot' => $slot]);
+
+        $this->assertSame(['cache-hit'], $callOrder);
+        $this->assertTrue($slot->hasResult());
+        $this->assertSame('cached-result', $slot->getResult());
+    }
+
+    public function testMiddlePriorityHandlerStoppingSkipsOnlyLowerHandlers(): void
+    {
+        $callOrder = [];
+        $slot = new InterceptionSlot();
+
+        $this->dispatcher->subscribe('priority.intercept', function () use (&$callOrder) {
+            $callOrder[] = 'highest';
+        }, 100);
+
+        $this->dispatcher->subscribe('priority.intercept', function () use (&$callOrder, $slot) {
+            $callOrder[] = 'middle';
+            $slot->stop();
+        }, 50);
+
+        $this->dispatcher->subscribe('priority.intercept', function () use (&$callOrder) {
+            $callOrder[] = 'lowest';
+        }, 0);
+
+        $this->dispatcher->dispatch('priority.intercept', ['slot' => $slot]);
+
+        $this->assertSame(['highest', 'middle'], $callOrder, 'handlers above the stopping priority still run; only lower ones are skipped');
+    }
+
+    public function testThrowingHandlerThatStoppedFirstStillHaltsPropagation(): void
+    {
+        // hallazgo (a): a handler that calls stop() and THEN throws must still stop
+        // propagation — the isStopped() check runs after the catch, unconditionally.
+        $callOrder = [];
+        $slot = new InterceptionSlot();
+
+        $this->dispatcher->subscribe('throw-then-stop.event', function () use (&$callOrder, $slot) {
+            $callOrder[] = 'throwing-handler';
+            $slot->stop();
+            throw new \RuntimeException('boom — but the slot was already stopped');
+        }, 100);
+
+        $this->dispatcher->subscribe('throw-then-stop.event', function () use (&$callOrder) {
+            $callOrder[] = 'never';
+        }, 0);
+
+        $this->dispatcher->dispatch('throw-then-stop.event', ['slot' => $slot]);
+
+        $this->assertSame(['throwing-handler'], $callOrder, 'a throw after stop() must not un-stop propagation');
+        $this->assertTrue($slot->isStopped());
+    }
+
+    public function testThrowingHandlerThatShortCircuitedFirstStillHaltsPropagationWithResult(): void
+    {
+        $callOrder = [];
+        $slot = new InterceptionSlot();
+
+        $this->dispatcher->subscribe('throw-then-shortcircuit.event', function () use (&$callOrder, $slot) {
+            $callOrder[] = 'throwing-handler';
+            $slot->shortCircuit('result-before-throw');
+            throw new \RuntimeException('boom');
+        }, 100);
+
+        $this->dispatcher->subscribe('throw-then-shortcircuit.event', function () use (&$callOrder) {
+            $callOrder[] = 'never';
+        }, 0);
+
+        $this->dispatcher->dispatch('throw-then-shortcircuit.event', ['slot' => $slot]);
+
+        $this->assertSame(['throwing-handler'], $callOrder);
+        $this->assertTrue($slot->hasResult());
+        $this->assertSame('result-before-throw', $slot->getResult());
+    }
+
+    public function testThrowingHandlerThatDidNotStopLetsPropagationContinue(): void
+    {
+        // Sanity check: the slot being present doesn't change the pre-existing
+        // error-isolation behavior when nothing actually stopped it.
+        $callOrder = [];
+        $slot = new InterceptionSlot();
+
+        $this->dispatcher->subscribe('throw-no-stop.event', function () use (&$callOrder) {
+            $callOrder[] = 'throwing-handler';
+            throw new \RuntimeException('boom');
+        }, 100);
+
+        $this->dispatcher->subscribe('throw-no-stop.event', function () use (&$callOrder) {
+            $callOrder[] = 'second-handler';
+        }, 0);
+
+        $this->dispatcher->dispatch('throw-no-stop.event', ['slot' => $slot]);
+
+        $this->assertSame(['throwing-handler', 'second-handler'], $callOrder);
+        $this->assertFalse($slot->isStopped());
+    }
+
+    public function testAsyncDispatchWithInterceptionSlotThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->dispatcher->dispatch('async.intercept.event', ['slot' => new InterceptionSlot()], true);
+    }
+
+    public function testAsyncDispatchWithInterceptionSlotThrowsEvenWithAsyncDispatcherWired(): void
+    {
+        $this->dispatcher->setAsyncDispatcher(function () {
+            $this->fail('the async dispatcher must never be invoked when a slot is present');
+        });
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->dispatcher->dispatch('async.intercept.wired.event', ['slot' => new InterceptionSlot()], true);
+    }
+
+    public function testAsyncDispatchWithoutSlotIsUnaffectedByTheGuard(): void
+    {
+        $asyncCalled = false;
+        $this->dispatcher->setAsyncDispatcher(function () use (&$asyncCalled) {
+            $asyncCalled = true;
+        });
+
+        $this->dispatcher->dispatch('async.no-slot.event', ['event' => 'payload-without-slot'], true);
+
+        $this->assertTrue($asyncCalled);
+    }
+
+    public function testPayloadWithNonSlotValueUnderSlotKeyIsIgnoredByInterceptionCheck(): void
+    {
+        $callOrder = [];
+
+        $this->dispatcher->subscribe('non-slot-value.event', function () use (&$callOrder) {
+            $callOrder[] = 'first';
+        }, 100);
+
+        $this->dispatcher->subscribe('non-slot-value.event', function () use (&$callOrder) {
+            $callOrder[] = 'second';
+        }, 0);
+
+        // 'slot' present but not an InterceptionSlot — must behave exactly like no slot at all.
+        $this->dispatcher->dispatch('non-slot-value.event', ['slot' => 'not-a-slot']);
+
+        $this->assertSame(['first', 'second'], $callOrder);
+    }
+
+    public function testDispatchWithoutSlotKeyRunsAllHandlersUnaffected(): void
+    {
+        // Payloads without a slot: byte-identical behavior to pre-interception dispatcher.
+        $callOrder = [];
+
+        $this->dispatcher->subscribe('legacy.event', function () use (&$callOrder) {
+            $callOrder[] = 'first';
+        }, 100);
+
+        $this->dispatcher->subscribe('legacy.event', function () use (&$callOrder) {
+            $callOrder[] = 'second';
+        }, 0);
+
+        $this->dispatcher->dispatch('legacy.event', ['some' => 'payload']);
+
+        $this->assertSame(['first', 'second'], $callOrder);
     }
 }

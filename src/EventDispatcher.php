@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\Eventing;
 
+use Milpa\Events\InterceptionSlot;
 use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 
@@ -23,8 +24,11 @@ use Psr\Log\LoggerInterface;
  * Central hub for string-named, event-driven communication between plugins:
  * exact and dot-segment wildcard subscriptions, priority ordering, listener
  * error isolation (a throwing handler is logged and does not stop the rest),
- * and a pluggable async (queue) seam — see {@see setAsyncDispatcher()} and the
- * `$async` semantics documented on {@see dispatch()}.
+ * a pluggable async (queue) seam — see {@see setAsyncDispatcher()} and the
+ * `$async` semantics documented on {@see dispatch()} — and honors the
+ * {@see InterceptionSlot} interception contract (KEYSTONE, core 0.5) documented
+ * on {@see dispatch()}: an optional `$payload['slot']` a handler can stop or
+ * short-circuit, purely additive and inert when absent.
  */
 class EventDispatcher implements MilpaEventDispatcherInterface
 {
@@ -70,9 +74,31 @@ class EventDispatcher implements MilpaEventDispatcherInterface
      * wired, `$async=true` degrades to synchronous dispatch (subscribers run inline, in the
      * same call) — a conformant MAY fallback, never a silent drop; the event is always either
      * queued or run.
+     *
+     * Interception (KEYSTONE, core 0.5) for this implementation: after EACH handler's
+     * error-isolating try/catch — unconditionally, whether or not that handler threw —
+     * this dispatcher checks whether `$payload['slot']` is an {@see InterceptionSlot} and,
+     * if `$slot->isStopped()`, stops invoking the remaining handlers for this dispatch
+     * (priority order is preserved up to that point — a higher-priority handler that
+     * stops means lower-priority handlers never run). A payload without a `'slot'` key,
+     * or with a `'slot'` that is not an {@see InterceptionSlot}, is completely unaffected
+     * — byte-identical to the pre-interception behavior. `$async=true` combined with an
+     * {@see InterceptionSlot} in the payload throws {@see \InvalidArgumentException}
+     * before anything else happens — see the guard at the top of this method.
+     *
+     * @throws \InvalidArgumentException if `$async` is true and `$payload['slot']` is an {@see InterceptionSlot} — interception is inherently synchronous
      */
     public function dispatch(string $eventName, array $payload = [], bool $async = false): void
     {
+        if ($async && ($payload['slot'] ?? null) instanceof InterceptionSlot) {
+            throw new \InvalidArgumentException(
+                "Cannot dispatch '{$eventName}' asynchronously with an InterceptionSlot in the payload: "
+                . 'interception (stop()/shortCircuit()) is inherently synchronous — a slot handed to a '
+                . 'queue is never re-read by the emitter, so the veto/short-circuit would be silently '
+                . 'lost. Dispatch synchronously ($async = false) or drop the slot from the payload.'
+            );
+        }
+
         $this->logger->debug("[EventDispatcher] Dispatching event: {$eventName}" . ($async ? " (async)" : ""));
 
         if ($async && $this->asyncDispatcher !== null) {
@@ -90,11 +116,20 @@ class EventDispatcher implements MilpaEventDispatcherInterface
 
         $this->logger->debug("[EventDispatcher] Found " . count($handlers) . " handler(s) for: {$eventName}");
 
+        $slot = $payload['slot'] ?? null;
+
         foreach ($handlers as $handler) {
             try {
                 $handler($eventName, $payload);
             } catch (\Throwable $e) {
                 $this->logger->error("[EventDispatcher] Handler error for {$eventName}: " . $e->getMessage());
+            }
+
+            // Unconditional: runs whether or not the handler above threw (hallazgo (a) —
+            // a handler that calls stop()/shortCircuit() and THEN throws must still stop
+            // propagation).
+            if ($slot instanceof InterceptionSlot && $slot->isStopped()) {
+                break;
             }
         }
     }
