@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/getmilpa/events/compare/v0.2.0...v0.2.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* receive milpa/core 0.6 — pin bump ([aa0d4b1](https://github.com/getmilpa/events/commit/aa0d4b190bab431dd819ff870e4e8e56221c6049))
+
 ## [0.2.0](https://github.com/getmilpa/events/compare/v0.1.1...v0.2.0) (2026-07-08)
 
 
