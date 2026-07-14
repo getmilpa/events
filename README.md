@@ -116,7 +116,7 @@ namespace semantically correct beats cosmetic symmetry with the package name.
 ## Requirements
 
 - PHP **≥ 8.3**
-- [`milpa/core`](https://packagist.org/packages/milpa/core) **^0.3**
+- [`milpa/core`](https://packagist.org/packages/milpa/core) **^0.6**
 - [`psr/log`](https://packagist.org/packages/psr/log) **^3**
 
 ## Documentation

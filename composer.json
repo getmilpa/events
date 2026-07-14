@@ -3,6 +3,12 @@
   "description": "String-named event dispatch for the Milpa PHP framework: dot-segment wildcard subscriptions, priorities, listener error isolation, and a pluggable async (queue) seam.",
   "type": "library",
   "license": "Apache-2.0",
+  "authors": [
+    {
+      "name": "Rodrigo Vicente - TeamX Agency",
+      "homepage": "https://teamx.agency"
+    }
+  ],
   "require": {
     "php": ">=8.3",
     "milpa/core": "^0.6",
