@@ -1,6 +1,15 @@
 {
   "name": "milpa/events",
   "description": "String-named event dispatch for the Milpa PHP framework: dot-segment wildcard subscriptions, priorities, listener error isolation, and a pluggable async (queue) seam.",
+  "keywords": [
+    "php",
+    "milpa",
+    "framework",
+    "event-dispatcher",
+    "pubsub",
+    "wildcards",
+    "listeners"
+  ],
   "type": "library",
   "license": "Apache-2.0",
   "authors": [
@@ -11,7 +20,7 @@
   ],
   "require": {
     "php": ">=8.3",
-    "milpa/core": "^0.6",
+    "milpa/core": "^0.6.2 || ^0.7",
     "psr/log": "^3"
   },
   "require-dev": {
