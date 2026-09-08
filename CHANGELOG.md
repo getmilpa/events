@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/getmilpa/events/compare/v0.3.1...v0.4.0) (2026-09-08)
+
+
+### Features
+
+* the dispatcher knows what was declared to it and what it dispatched ([#11](https://github.com/getmilpa/events/issues/11)) ([8d9c959](https://github.com/getmilpa/events/commit/8d9c959b6ce2dcc17230531278bb25a1acffc2fc))
+
 ## [0.2.2](https://github.com/getmilpa/events/compare/v0.2.1...v0.2.2) (2026-08-01)
 
 
