@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Milpa\Eventing;
 
 use Milpa\Events\InterceptionSlot;
+use Milpa\Interfaces\Event\DeclaredEvents;
+use Milpa\Interfaces\Event\EventDeclaration;
 use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 
@@ -30,8 +32,14 @@ use Psr\Log\LoggerInterface;
  * on {@see dispatch()}: an optional `$payload['slot']` a handler can stop or
  * short-circuit, purely additive and inert when absent.
  */
-class EventDispatcher implements MilpaEventDispatcherInterface
+class EventDispatcher implements MilpaEventDispatcherInterface, DeclaredEvents
 {
+    /** @var list<EventDeclaration> what emitters declared, in order — the first declaration of a name is kept */
+    private array $declared = [];
+
+    /** @var list<string> every name dispatched in this process, first occurrence first */
+    private array $dispatched = [];
+
     /**
      * @var array<string, array<int, array<callable>>> Subscribers organized by event name, then priority
      */
@@ -90,6 +98,12 @@ class EventDispatcher implements MilpaEventDispatcherInterface
      */
     public function dispatch(string $eventName, array $payload = [], bool $async = false): void
     {
+        // REMEMBERED BEFORE ANYTHING ELSE — declared or not, with subscribers or none, queued or inline: the
+        // catalogue reads what this process really dispatched, and a name nobody declared is debt with a name
+        // (greenhouse decisions/0228).
+        if (!\in_array($eventName, $this->dispatched, true)) {
+            $this->dispatched[] = $eventName;
+        }
         if ($async && ($payload['slot'] ?? null) instanceof InterceptionSlot) {
             throw new \InvalidArgumentException(
                 "Cannot dispatch '{$eventName}' asynchronously with an InterceptionSlot in the payload: "
@@ -132,6 +146,41 @@ class EventDispatcher implements MilpaEventDispatcherInterface
                 break;
             }
         }
+    }
+
+    /**
+     * Registers what an emitter dispatches; declaring the same name twice keeps the first declaration.
+     */
+    public function declare(EventDeclaration ...$events): void
+    {
+        foreach ($events as $event) {
+            foreach ($this->declared as $known) {
+                if ($known->name === $event->name) {
+                    continue 2;
+                }
+            }
+            $this->declared[] = $event;
+        }
+    }
+
+    /**
+     * Every declaration made to this dispatcher, in declaration order.
+     *
+     * @return list<EventDeclaration>
+     */
+    public function declared(): array
+    {
+        return $this->declared;
+    }
+
+    /**
+     * Every event name this dispatcher has dispatched in this process, first occurrence first.
+     *
+     * @return list<string>
+     */
+    public function dispatched(): array
+    {
+        return $this->dispatched;
     }
 
     /**
